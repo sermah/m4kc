@@ -165,7 +165,7 @@ case $1 in
     && install -m 644 m4kc.desktop "$INSTALL_LOCATION/share/applications/m4kc.desktop"             \
     && install -m 644 icons/icon.png "$INSTALL_LOCATION/share/icons/hicolor/256x256/apps/m4kc.png" \
     && install -m 755 "./$SMALL_PATH" "$INSTALL_LOCATION/games/m4kc"                               \
-    && echo ".// installed"
+    && echo ".// installed to $INSTALL_LOCATION"
     ;;
     
   uninstall)
