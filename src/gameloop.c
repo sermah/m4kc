@@ -132,22 +132,25 @@ int gameLoop (
  */
 static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
   static double
-        f21,
-        f22,
-        f23,
-        f24,
-        f25,
-        f26,
-        f27,
-        f28,
-        f29,
-        f30,
-        f31,
-        f32,
-        f33,
-        f34,
-        f35,
-        f36;
+        rayOffsetZ,
+        rayHCoef,
+        rayDirY,
+        rayDirX,
+        rayDirZ,
+        maxSelectDist,
+        rayDirW,
+        invRayDirW,
+        normRayDirX,
+        normRayDirY,
+        normRayDirZ,
+        sideDistW,
+        rayDist,
+        intersectX,
+        intersectY,
+        intersectZ,
+        playerOffsetX,
+        playerOffsetY,
+        playerOffsetZ;
 
   static int
         blockSelected = 0,
@@ -407,54 +410,66 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
   if (headInWater) { effectFov += 20; }
   
   selectedPass = 0;
-  for (int pixelX = 0; pixelX < BUFFER_W; pixelX++) {
-    double rayOffsetX = (pixelX - BUFFER_HALF_W) / effectFov;
-    for (int pixelY = 0; pixelY < BUFFER_H; pixelY++) {
+
+  // Ray offset Z?
+  rayOffsetZ = 1.0;
+
+  playerOffsetX = player->pos.x - floor(player->pos.x);
+  playerOffsetY = player->pos.y - floor(player->pos.y);
+  playerOffsetZ = player->pos.z - floor(player->pos.z);
+
+  for (int pixelY = 0; pixelY < BUFFER_H; pixelY++) {
+
+    double rayOffsetY = (pixelY - BUFFER_HALF_H) / effectFov;
+    rayDirY = rayOffsetY * player->vectorV.y - rayOffsetZ * player->vectorV.x;
+    rayHCoef = rayOffsetZ * player->vectorV.y + rayOffsetY * player->vectorV.x;
+
+    for (int pixelX = 0; pixelX < BUFFER_W; pixelX++) {
       int finalPixelColor = 0;
       int pixelMist = 255;
       int pixelShade;
       
-      double rayOffsetY = (pixelY - BUFFER_HALF_H) / effectFov;
+      double rayOffsetX = (pixelX - BUFFER_HALF_W) / effectFov;
 
-      // Ray offset Z?
-      f21 = 1.0;
-      
-      f22 = f21        * player->vectorV.y + rayOffsetY * player->vectorV.x;
-      f23 = rayOffsetY * player->vectorV.y - f21        * player->vectorV.x;
-      f24 = rayOffsetX * player->vectorH.y + f22        * player->vectorH.x;
-      f25 = f22        * player->vectorH.y - rayOffsetX * player->vectorH.x;
+      rayDirX = rayOffsetX * player->vectorH.y + rayHCoef   * player->vectorH.x;
+      rayDirZ = rayHCoef   * player->vectorH.y - rayOffsetX * player->vectorH.x;
 
       double rayDistanceLimit = effectDrawDistance;
       
-      f26 = 5.0;
+      maxSelectDist = 5.0;
       for (int blockFace = 0; blockFace < 3; blockFace++) {
-        f27 = f24;
-        if (blockFace == 1) f27 = f23;
-        if (blockFace == 2) f27 = f25;
-        f28 = 1.0 / ((f27 < 0.0) ? (-1 * f27) : f27);
-        f29 = f24 * f28;
-        f30 = f23 * f28;
-        f31 = f25 * f28;
-        f32 = player->pos.x - floor(player->pos.x);
-        if (blockFace == 1) f32 = player->pos.y - floor(player->pos.y);
-        if (blockFace == 2) f32 = player->pos.z - floor(player->pos.z);
-        if (f27 > 0.0)      f32 = 1.0 - f32; 
-        f33 = f28 * f32;
-        f34 = player->pos.x + f29 * f32;
-        f35 = player->pos.y + f30 * f32;
-        f36 = player->pos.z + f31 * f32;
-        if (f27 < 0.0) {
-          if (blockFace == 0) f34--; 
-          if (blockFace == 1) f35--; 
-          if (blockFace == 2) f36--; 
+        // w = x at 0, y at 1, z at 2
+                            rayDirW = rayDirX; // x
+        if (blockFace == 1) rayDirW = rayDirY; // y
+        if (blockFace == 2) rayDirW = rayDirZ; // z
+
+        invRayDirW = 1.0 / ((rayDirW < 0.0) ? (-1 * rayDirW) : rayDirW); // koef (1/abs(rayDirW))
+        normRayDirX = rayDirX * invRayDirW; // x
+        normRayDirY = rayDirY * invRayDirW; // y
+        normRayDirZ = rayDirZ * invRayDirW; // z
+
+        // Distance to the nearest side
+                            sideDistW = playerOffsetX;
+        if (blockFace == 1) sideDistW = playerOffsetY;
+        if (blockFace == 2) sideDistW = playerOffsetZ;
+        if (rayDirW > 0.0)  sideDistW = 1.0 - sideDistW;
+
+        rayDist = invRayDirW * sideDistW;
+        intersectX = player->pos.x + normRayDirX * sideDistW; // x
+        intersectY = player->pos.y + normRayDirY * sideDistW; // y
+        intersectZ = player->pos.z + normRayDirZ * sideDistW; // z
+        if (rayDirW < 0.0) {
+          if (blockFace == 0) intersectX--; 
+          if (blockFace == 1) intersectY--; 
+          if (blockFace == 2) intersectZ--; 
         }
         
         /* Whatever's in this loop needs to run *extremely*
         fast */
-        while (f33 < rayDistanceLimit) {
-          blockRayPosition.x = floor(f34);
-          blockRayPosition.y = floor(f35);
-          blockRayPosition.z = floor(f36);
+        while (rayDist < rayDistanceLimit) {
+          blockRayPosition.x = floor(intersectX);
+          blockRayPosition.y = floor(intersectY);
+          blockRayPosition.z = floor(intersectZ);
           
           /* Imitate getBlock so we don't have to launch
           into a function then another function a zillion
@@ -529,12 +544,12 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
             !(headInWater && intersectedBlock == BLOCK_WATER)
           ) {
             // Determine what texel the ray hit
-            int textureX = (int)floor((f34 + f36) * 16.0) & 0xF;
-            int textureY = ((int)floor(f35 * 16.0) & 0xF) + 16;
+            int textureX = (int)floor((intersectX + intersectZ) * 16.0) & 0xF;
+            int textureY = ((int)floor(intersectY * 16.0) & 0xF) + 16;
             if (blockFace == 1) {
-              textureX = (int)floor(f34 * 16.0) & 0xF;
-              textureY = (int)floor(f36 * 16.0) & 0xF;
-              if (f30 < 0.0)
+              textureX = (int)floor(intersectX * 16.0) & 0xF;
+              textureY = (int)floor(intersectZ * 16.0) & 0xF;
+              if (normRayDirY < 0.0)
                 textureY += 32; 
             }
 
@@ -564,7 +579,7 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
             /* See if the block is selected. There must be a
             better way to do this check... */
             if (
-              f33 < f26 && (
+              rayDist < maxSelectDist && (
                 (
                    ! options.trapMouse
                   && pixelX == inputs->mouse.x / BUFFER_SCALE
@@ -581,27 +596,27 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
 
               blockSelectOffset = (const IntCoords) { 0 };
               switch (blockFace) {
-                case 0: blockSelectOffset.x = 1 - 2 * (f27 > 0.0); break;
-                case 1: blockSelectOffset.y = 1 - 2 * (f27 > 0.0); break;
-                case 2: blockSelectOffset.z = 1 - 2 * (f27 > 0.0); break;
+                case 0: blockSelectOffset.x = 1 - 2 * (rayDirW > 0.0); break;
+                case 1: blockSelectOffset.y = 1 - 2 * (rayDirW > 0.0); break;
+                case 2: blockSelectOffset.z = 1 - 2 * (rayDirW > 0.0); break;
               }
               
-              f26 = f33;
+              maxSelectDist = rayDist;
             }
             
             if (pixelColor > 0) {
               finalPixelColor = pixelColor;
               pixelMist = 255 - (int)(
-                f33 / (double)effectDrawDistance * 255.0F);
+                rayDist / (double)effectDrawDistance * 255.0F);
               pixelShade = 255 - (blockFace + 2) % 3 * 50;
-              rayDistanceLimit = f33;
+              rayDistanceLimit = rayDist;
             } 
           }
           chunkNull:
-          f34 += f29;
-          f35 += f30;
-          f36 += f31;
-          f33 += f28;
+          intersectX += normRayDirX;
+          intersectY += normRayDirY;
+          intersectZ += normRayDirZ;
+          rayDist += invRayDirW;
         } // This concludes our warpspeed rampage
       }
       
