@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include "terrain.h"
 #include "main.h"
 #include "player.h"

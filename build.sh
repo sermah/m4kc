@@ -20,9 +20,10 @@ FLAGS_SMALL="-Os -g0 -fno-stack-protector -fno-unwind-tables \
 -fno-asynchronous-unwind-tables -Dsmall"
 FLAGS_WARN="-Wall -Wextra"
 FLAGS_DEBUG="-g"
-FLAGS_LIBS="-L/usr/local/lib -lSDL2 -lm"
+# FLAGS_LIBS="-L/usr/local/lib -lSDL2 -lm" # for linux 
+FLAGS_LIBS="-lm -lSDL2 -I/opt/homebrew/Cellar/sdl2/2.30.1/include/SDL2 -L/opt/homebrew/Cellar/sdl2/2.30.1/lib" # for macos
 
-INSTALL_LOCATION="/usr/local"
+INSTALL_LOCATION="/Users/20940748/m4kc"
 
 # do specific things if we are on windows
 
@@ -54,7 +55,7 @@ buildModule () {
   modIn="$SRC_PATH/$1.c"
   modHead="$SRC_PATH/$1.h"
 
-  flags="-c $FLAGS_WARN $FLAGS_INCLUDE"
+  flags="-c $FLAGS_WARN $FLAGS_LIBS $FLAGS_INCLUDE"
   if [ "$2" = "small" ]
   then flags="$flags $FLAGS_SMALL"
        modOut="$OBJ_PATH/small/$1.o"
