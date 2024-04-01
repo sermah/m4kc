@@ -106,3 +106,7 @@ double dist3d (double x1, double y1, double z1, double x2, double y2, double z2)
                 pow(y1 - y2, 2) +
                 pow(z1 - z2, 2));
 }
+
+double intbounds(double s, double invds) { 
+        return (invds > 0 ? ceil(s) - s : s - floor(s)) * fabs(invds); 
+}

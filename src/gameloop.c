@@ -137,24 +137,12 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
         rayDirY,
         rayDirX,
         rayDirZ,
-        maxSelectDist,
-        rayDirW,
-        invRayDirW,
-        normRayDirX,
-        normRayDirY,
-        normRayDirZ,
-        sideDistW,
-        rayDist,
-        intersectX,
-        intersectY,
-        intersectZ,
-        playerOffsetX,
-        playerOffsetY,
-        playerOffsetZ;
+        maxSelectDist;
 
   static int
         blockSelected = 0,
-        selectedPass;
+        selectedPass,
+        rayDist = 0;
   
   static IntCoords blockSelect       = { 0 };
   static IntCoords blockSelectOffset = { 0 };
@@ -414,15 +402,18 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
   // Ray offset Z?
   rayOffsetZ = 1.0;
 
-  playerOffsetX = player->pos.x - floor(player->pos.x);
-  playerOffsetY = player->pos.y - floor(player->pos.y);
-  playerOffsetZ = player->pos.z - floor(player->pos.z);
+  int blockX = floor(player->pos.x);
+  int blockY = floor(player->pos.y);
+  int blockZ = floor(player->pos.z);
 
   for (int pixelY = 0; pixelY < BUFFER_H; pixelY++) {
 
     double rayOffsetY = (pixelY - BUFFER_HALF_H) / effectFov;
     rayDirY = rayOffsetY * player->vectorV.y - rayOffsetZ * player->vectorV.x;
     rayHCoef = rayOffsetZ * player->vectorV.y + rayOffsetY * player->vectorV.x;
+    double invRayDirY = 1.0 / rayDirY;
+    int raySignY = (invRayDirY < 0.0) ? -1 : 1;
+    double deltaDistY = invRayDirY * raySignY;
 
     for (int pixelX = 0; pixelX < BUFFER_W; pixelX++) {
       int finalPixelColor = 0;
@@ -434,44 +425,30 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
       rayDirX = rayOffsetX * player->vectorH.y + rayHCoef   * player->vectorH.x;
       rayDirZ = rayHCoef   * player->vectorH.y - rayOffsetX * player->vectorH.x;
 
-      double rayDistanceLimit = effectDrawDistance;
-      
+      int rayDistanceLimit = floor(effectDrawDistance * effectDrawDistance);
+
+      double invRayDirX = 1.0 / rayDirX;
+      double invRayDirZ = 1.0 / rayDirZ;
+
+      int raySignX = (invRayDirX < 0.0) ? -1 : 1;
+      int raySignZ = (invRayDirZ < 0.0) ? -1 : 1;
+
+      double deltaDistX = invRayDirX * raySignX;
+      double deltaDistZ = invRayDirZ * raySignZ;
+
+      double sideDistX = intbounds(player->pos.x, invRayDirX);
+      double sideDistY = intbounds(player->pos.y, invRayDirY);
+      double sideDistZ = intbounds(player->pos.z, invRayDirZ);
+
+      int blockPosX = blockX;
+      int blockPosY = blockY;
+      int blockPosZ = blockZ;
+
       maxSelectDist = 5.0;
-      for (int blockFace = 0; blockFace < 3; blockFace++) {
-        // w = x at 0, y at 1, z at 2
-                            rayDirW = rayDirX; // x
-        if (blockFace == 1) rayDirW = rayDirY; // y
-        if (blockFace == 2) rayDirW = rayDirZ; // z
-
-        invRayDirW = 1.0 / ((rayDirW < 0.0) ? (-1 * rayDirW) : rayDirW); // koef (1/abs(rayDirW))
-        normRayDirX = rayDirX * invRayDirW; // x
-        normRayDirY = rayDirY * invRayDirW; // y
-        normRayDirZ = rayDirZ * invRayDirW; // z
-
-        // Distance to the nearest side
-                            sideDistW = playerOffsetX;
-        if (blockFace == 1) sideDistW = playerOffsetY;
-        if (blockFace == 2) sideDistW = playerOffsetZ;
-        if (rayDirW > 0.0)  sideDistW = 1.0 - sideDistW;
-
-        rayDist = invRayDirW * sideDistW;
-        intersectX = player->pos.x + normRayDirX * sideDistW; // x
-        intersectY = player->pos.y + normRayDirY * sideDistW; // y
-        intersectZ = player->pos.z + normRayDirZ * sideDistW; // z
-        if (rayDirW < 0.0) {
-          if (blockFace == 0) intersectX--; 
-          if (blockFace == 1) intersectY--; 
-          if (blockFace == 2) intersectZ--; 
-        }
-        
-        /* Whatever's in this loop needs to run *extremely*
-        fast */
-        while (rayDist < rayDistanceLimit) {
-          blockRayPosition.x = floor(intersectX);
-          blockRayPosition.y = floor(intersectY);
-          blockRayPosition.z = floor(intersectZ);
-          
-          /* Imitate getBlock so we don't have to launch
+      int blockFace = 0;
+      rayDist = 0;
+      while (rayDist < rayDistanceLimit) {
+        /* Imitate getBlock so we don't have to launch
           into a function then another function a zillion
           times per second. This MUST BE STATIC because
           this information needs to carry over between
@@ -483,9 +460,9 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
             100000000
           }, lookup_now;
           
-          lookup_now.x = blockRayPosition.x >> 6;
-          lookup_now.y = blockRayPosition.y >> 6;
-          lookup_now.z = blockRayPosition.z >> 6;
+          lookup_now.x = blockPosX >> 6;
+          lookup_now.y = blockPosY >> 6;
+          lookup_now.z = blockPosZ >> 6;
 
           if (
             lookup_now.x != lookup_ago.x ||
@@ -530,9 +507,9 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
           Block intersectedBlock;
           foundChunk: if (chunk) {
             intersectedBlock = chunk->blocks [
-               nmod(blockRayPosition.x, 64)        +
-              (nmod(blockRayPosition.y, 64) << 6 ) +
-              (nmod(blockRayPosition.z, 64) << 12)
+               nmod(blockPosX, 64)        +
+              (nmod(blockPosY, 64) << 6 ) +
+              (nmod(blockPosZ, 64) << 12)
             ];
           } else {
             intersectedBlock = 0;
@@ -544,23 +521,50 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
             !(headInWater && intersectedBlock == BLOCK_WATER)
           ) {
             // Determine what texel the ray hit
-            int textureX = (int)floor((intersectX + intersectZ) * 16.0) & 0xF;
-            int textureY = ((int)floor(intersectY * 16.0) & 0xF) + 16;
+            int textureX, textureY;
+            double isectX, isectY;
+            if (blockFace == 0) {
+              double dst = ((double)blockPosX - player->pos.x) * invRayDirX;
+              if (rayDirX < 0.0) dst += invRayDirX;
+              isectX = player->pos.z + rayDirZ * dst;
+              isectY = player->pos.y + rayDirY * dst;
+            }
             if (blockFace == 1) {
-              textureX = (int)floor(intersectX * 16.0) & 0xF;
-              textureY = (int)floor(intersectZ * 16.0) & 0xF;
-              if (normRayDirY < 0.0)
-                textureY += 32; 
+              double dst = ((double)blockPosY - player->pos.y) * invRayDirY;
+              if (rayDirY < 0.0) dst += invRayDirY;
+              isectX = player->pos.x + rayDirX * dst;
+              isectY = player->pos.z + rayDirZ * dst;
+            }
+            if (blockFace == 2) {
+              double dst = ((double)blockPosZ - player->pos.z) * invRayDirZ;
+              if (rayDirZ < 0.0) dst += invRayDirZ;
+              isectX = player->pos.x + rayDirX * dst;
+              isectY = player->pos.y + rayDirY * dst;
+            }
+
+            if (isectX < 0.0)
+              isectX += ceil(isectX);
+
+            if (isectY < 0.0)
+              isectY += ceil(isectY);
+
+            textureX = (int)floor(isectX * 16.0) & 0xF;
+            textureY = (int)floor(isectY * 16.0) & 0xF;
+
+            if (blockFace != 1) {
+              textureY += 16;
+            } else if (rayDirY < 0.0) {
+              textureY += 32; 
             }
 
             // Block outline color
             int pixelColor = 0xFFFFFF;
             if (
               (
-                !blockSelected                      ||
-                blockRayPosition.x != blockSelect.x ||
-                blockRayPosition.y != blockSelect.y ||
-                blockRayPosition.z != blockSelect.z
+                !blockSelected ||
+                blockPosX != blockSelect.x ||
+                blockPosY != blockSelect.y ||
+                blockPosZ != blockSelect.z
               ) || (
                    textureX > 0  
                 && textureY % 16 > 0
@@ -596,9 +600,9 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
 
               blockSelectOffset = (const IntCoords) { 0 };
               switch (blockFace) {
-                case 0: blockSelectOffset.x = 1 - 2 * (rayDirW > 0.0); break;
-                case 1: blockSelectOffset.y = 1 - 2 * (rayDirW > 0.0); break;
-                case 2: blockSelectOffset.z = 1 - 2 * (rayDirW > 0.0); break;
+                case 0: blockSelectOffset.x = 1 - 2 * (rayDirX > 0.0); break;
+                case 1: blockSelectOffset.y = 1 - 2 * (rayDirY > 0.0); break;
+                case 2: blockSelectOffset.z = 1 - 2 * (rayDirZ > 0.0); break;
               }
               
               maxSelectDist = rayDist;
@@ -609,15 +613,27 @@ static void gameLoop_gameplay (SDL_Renderer *renderer, Inputs *inputs) {
               pixelMist = 255 - (int)(
                 rayDist / (double)effectDrawDistance * 255.0F);
               pixelShade = 255 - (blockFace + 2) % 3 * 50;
-              rayDistanceLimit = rayDist;
+              break;
             } 
           }
           chunkNull:
-          intersectX += normRayDirX;
-          intersectY += normRayDirY;
-          intersectZ += normRayDirZ;
-          rayDist += invRayDirW;
-        } // This concludes our warpspeed rampage
+        
+        if (sideDistX < sideDistY && sideDistX < sideDistZ) {
+          blockPosX += raySignX;
+          sideDistX += deltaDistX;
+          blockFace = 0;
+        } else if (sideDistY < sideDistZ) { 
+          blockPosY += raySignY;
+          sideDistY += deltaDistY;
+          blockFace = 1;
+        } else {                             
+          blockPosZ += raySignZ;
+          sideDistZ += deltaDistZ;
+          blockFace = 2;
+        }
+        rayDist = (blockPosX - blockX) * (blockPosX - blockX) + 
+                  (blockPosY - blockY) * (blockPosY - blockY) +
+                  (blockPosZ - blockZ) * (blockPosZ - blockZ);
       }
       
       // Draw inverted color crosshair
